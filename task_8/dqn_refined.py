@@ -1,53 +1,53 @@
-import gymnasium as gym
-import numpy as np
-import cv2 # Model requires greyscale images as input, need cv2
-import random
-from collections import deque
+import gymnasium as gym 
+import numpy as np 
+import cv2 # Model requires greyscale images as input, need cv2 
+import random 
+from collections import deque   
+  
+# Torch imports     
+import torch    
+import torch.nn as nn  # Neural networks 
+from torch.utils.tensorboard import SummaryWriter # For graphing the reward 
 
-# Torch imports
-import torch
-import torch.nn as nn  # Neural networks
-from torch.utils.tensorboard import SummaryWriter # For graphing the reward
 
-
-class DQN(nn.Module):
+class DQN(nn.Module):    
+    """  
+    my simple implementation of a DQN   
+    Takes in 4 gameplay frames, outputs Q values for best possible action   
     """
-    my simple implementation of a DQN
-    Takes in 4 gameplay frames, outputs Q values for best possible action
-    """
-    def __init__(self, num_actions):
-        super().__init__()
-        self.conv_layers = nn.Sequential(
+    def __init__(self, num_actions):    
+        super().__init__()  
+        self.conv_layers = nn.Sequential(    
             nn.Conv2d(4, 32, kernel_size=8, stride=4),  # 4 frames, 32 output channels
-            nn.ReLU(),
+            nn.ReLU(),  
             nn.Conv2d(32, 64, kernel_size=4, stride=2), # 32 frames, 64 output channels
-            nn.ReLU(),
+            nn.ReLU(),  
             nn.Conv2d(64, 64, kernel_size=3, stride=1),
-            nn.ReLU(),
+            nn.ReLU(),  
         )
 
-        self.fully_connected_layers = nn.Sequential(
-            nn.Flatten(),  # Takes 3d channels -> 1d vector
-            nn.Linear(64 * 7 * 7, 512),  # Paper uses 512
-            nn.ReLU(),
-            nn.Linear(512, num_actions)  # Outputs Q value for each possible action
+        self.fully_connected_layers = nn.Sequential(    
+            nn.Flatten(),  # Takes 3d channels -> 1d vector     
+            nn.Linear(64 * 7 * 7, 512),  # Paper uses 512   
+            nn.ReLU(),  
+            nn.Linear(512, num_actions)  # Outputs Q value for each possible action     
         )
-
+    
     def forward(self, images):
         """
         Passes input through conv layers
         Then sends that output through FC layers to get Q-values
-        """
+        """     
         return self.fully_connected_layers(self.conv_layers(images))
 
 
-def preprocess(frame):
+def preprocess(frame):  
     """
-    Converts raw images to understandable input
+    Converts raw images to understandable input 
     """
-    frame = cv2.cvtColor(frame, cv2.COLOR_RGB2GRAY) 
-    frame = cv2.resize(frame, (84, 84)) 
-    frame = frame.astype(np.float32) / 255.0 
+    frame = cv2.cvtColor(frame, cv2.COLOR_RGB2GRAY)  
+    frame = cv2.resize(frame, (84, 84))  
+    frame = frame.astype(np.float32) / 255.0  
     return frame 
 
 
