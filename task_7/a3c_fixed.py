@@ -4,8 +4,8 @@ import numpy as np
 # Torch imports 
 import torch
 import torch.nn as nn
-import torch.optim as optim
-import torch.multiprocessing as mp
+import torch.optim as optim # optimizer 
+import torch.multiprocessing as mp # multiprocessing module 
 from torch.utils.tensorboard import SummaryWriter
 
 
@@ -32,15 +32,16 @@ class A3CNetwork(nn.Module):
         ) 
 
         # Actor-critic architecture 
-        self.mean = nn.Linear(256, action_dim) 
+        self.mean = nn.Linear(256, action_dim) # actor head 
         self.log_std = nn.Parameter(torch.zeros(action_dim)) 
-        self.value = nn.Linear(256, 1) 
+        self.value = nn.Linear(256, 1) # critic head 
  
     def forward(self, x): 
+        # Runs the cnn, fc, sends that to actor critic 
+        # returns the mean std value 
         x = x.float() / 255.0 
         x = self.cnn(x) 
         x = self.fc(x)
- 
         mean_output = self.mean(x) 
         std_output = torch.exp(self.log_std).expand_as(mean_output) 
         value_output = self.value(x) 
@@ -50,6 +51,7 @@ class A3CNetwork(nn.Module):
 
 def worker(max_global_steps, global_model, optimizer, wid, lock, log_dir): 
     # every worker has own env 
+    # will figure out gradient and push to global model 
     env = gym.make("CarRacing-v2", continuous=True) 
     local_model = A3CNetwork(action_dim=3) 
     local_model.load_state_dict(global_model.state_dict()) 
@@ -70,6 +72,7 @@ def worker(max_global_steps, global_model, optimizer, wid, lock, log_dir):
         reward_list = []
 
         for _ in range(5):
+            # Interacting w the enviornment 
             mean_output, std_output, value_output = local_model(state)
             distribution = torch.distributions.Normal(mean_output, std_output)
             raw_action = distribution.sample()
@@ -79,10 +82,12 @@ def worker(max_global_steps, global_model, optimizer, wid, lock, log_dir):
             next_state, reward, terminated, truncated, _ = env.step(action_to_environment[0].numpy())
             done = terminated or truncated
 
+            # recording the data 
             log_probabilities.append(log_probability)
             value_estimates.append(value_output.squeeze(0))
             reward_list.append(reward)
 
+            # exit ting the program if done or program crash 
             if done:
                 state, _ = env.reset()
                 state = torch.tensor(state, dtype=torch.float32).permute(2, 0, 1).unsqueeze(0)
@@ -94,7 +99,7 @@ def worker(max_global_steps, global_model, optimizer, wid, lock, log_dir):
                 with torch.no_grad():
                     _, _, next_value = local_model(state)
 
-        # Compute returns
+        # Compute returns a3c uses the discoutned returns  
         R = torch.tensor(0.0) if done else next_value.detach()
         returns = []
         for r in reversed(reward_list):
@@ -105,7 +110,7 @@ def worker(max_global_steps, global_model, optimizer, wid, lock, log_dir):
         log_probabilities = torch.stack(log_probabilities)
         value_estimates = torch.stack(value_estimates)
 
-        # Loss functions
+        # calculate the loss 
         advantage = returns - value_estimates.detach()
         policy_loss = -(log_probabilities * advantage).mean()
         value_loss = (returns - value_estimates).pow(2).mean()
@@ -114,7 +119,8 @@ def worker(max_global_steps, global_model, optimizer, wid, lock, log_dir):
         optimizer.zero_grad()
         total_loss.backward()
 
-        # Update global model parameters with lock
+        # update global model params 
+        # use the context manager with the lock for mp 
         with lock:
             for global_param, local_param in zip(global_model.parameters(), local_model.parameters()):
                 if global_param.grad is None:
@@ -123,14 +129,12 @@ def worker(max_global_steps, global_model, optimizer, wid, lock, log_dir):
                     global_param.grad.copy_(local_param.grad)
             optimizer.step()
 
-        # Sync local model with global
+        # sync model w/ global model 
         local_model.load_state_dict(global_model.state_dict())
 
         # tensorboard integration 
         if writer is not None:
             writer.add_scalar("a3c/total_loss_per_step", total_loss.item(), global_step)
-            #writer.add_scalar("a3c/policy_loss", policy_loss.item(), global_step)
-            #writer.add_scalar("a3c/value_loss", value_loss.item(), global_step)
             writer.add_scalar("a3c/reward_per_step", sum(reward_list), global_step)
 
         # debugging 
@@ -157,6 +161,7 @@ if __name__ == "__main__":
     #max_global_steps = 20 testing  
     log_dir = "a3c_logs" 
  
+    # start the workers 
     for wid in range(number_of_workers): 
         p = mp.Process(target=worker, args=(max_global_steps, global_model, optimizer, wid, lock, log_dir))
         p.start() 
